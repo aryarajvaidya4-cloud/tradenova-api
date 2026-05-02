@@ -2,11 +2,10 @@ const express = require('express');
 const cors = require('cors');
 const app = express();
 
-// Render requires apps to listen on a dynamic port
-const PORT = process.env.PORT || 3000; 
+const PORT = process.env.PORT || 3000;
 
-// Allow your frontend to talk to this backend
-app.use(cors());
+// Enable CORS for ALL origins
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 // 1. SECURE SERVER DATA
@@ -16,13 +15,10 @@ let market = [
     { symbol: "NVT", name: "NovaTech", price: 185, vol: 5, candles: [] }
 ];
 
-// In a real app, this would be a MongoDB database. 
-// For now, it lives in the server's memory.
-let users = {
-    "Trader1": { balance: 25000, portfolio: {} } 
-};
+let users = {};
+let chatLog = [{ user: "System", msg: "Welcome to the TradeNova Global Chat!" }];
 
-// 2. MARKET ENGINE (Runs 24/7 on the Server)
+// 2. MARKET ENGINE
 function generateCandle(stock, time) {
     const lastClose = stock.candles.length > 0 ? stock.candles[stock.candles.length - 1].close : stock.price;
     const change = stock.vol * (Math.random() - 0.48);
@@ -30,52 +26,38 @@ function generateCandle(stock, time) {
     stock.price = close;
     
     stock.candles.push({ 
-        time: time, 
-        open: lastClose, 
+        time: time, open: lastClose, 
         high: Math.max(lastClose, close) + (stock.vol * 0.2), 
-        low: Math.min(lastClose, close) - (stock.vol * 0.2), 
-        close: close 
+        low: Math.min(lastClose, close) - (stock.vol * 0.2), close: close 
     });
     
     if(stock.candles.length > 100) stock.candles.shift();
 }
 
-// Pre-fill history so the charts aren't empty when users log in
 market.forEach(s => {
     let now = Math.floor(Date.now() / 1000);
     for(let i=100; i>0; i--) generateCandle(s, now - (i * 5));
 });
 
-// Tick every 5 seconds continuously
 setInterval(() => {
     let now = Math.floor(Date.now() / 1000);
     market.forEach(s => generateCandle(s, now));
 }, 5000);
 
-// 3. API ENDPOINTS (How the frontend talks to this server)
+// 3. API ENDPOINTS
+app.get('/api/market', (req, res) => res.json(market));
 
-// Send market data to the app
-app.get('/api/market', (req, res) => {
-    res.json(market);
-});
-
-// Get a specific user's balance and portfolio
 app.get('/api/user/:username', (req, res) => {
-    // If user doesn't exist, create a new one with starting cash
-    if (!users[req.params.username]) {
-        users[req.params.username] = { balance: 10000, portfolio: {} };
-    }
+    if (!users[req.params.username]) users[req.params.username] = { balance: 10000, portfolio: {} };
     res.json(users[req.params.username]);
 });
 
-// Process a Buy or Sell request
 app.post('/api/trade', (req, res) => {
     const { username, symbol, qty, type } = req.body;
     let user = users[username];
     let stock = market.find(s => s.symbol === symbol);
 
     if (!user || !stock || qty <= 0) return res.status(400).json({ error: "Invalid request" });
-
     let cost = stock.price * qty;
 
     if (type === 'BUY') {
@@ -88,11 +70,18 @@ app.post('/api/trade', (req, res) => {
         user.portfolio[symbol] -= qty;
         if(user.portfolio[symbol] === 0) delete user.portfolio[symbol];
     }
-
     res.json({ success: true, balance: user.balance, portfolio: user.portfolio });
 });
 
-// START SERVER
-app.listen(PORT, () => {
-    console.log(`🚀 TradeNova Cloud Backend running on port ${PORT}`);
+app.get('/api/chat', (req, res) => res.json(chatLog));
+
+app.post('/api/chat', (req, res) => {
+    const { username, msg } = req.body;
+    if(username && msg) {
+        chatLog.push({ user: username, msg: msg });
+        if(chatLog.length > 50) chatLog.shift();
+    }
+    res.json({ success: true });
 });
+
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
